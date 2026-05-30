@@ -49,6 +49,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // バックステッチ検出（Sobel エッジ）
     const backStitch = await detectBackStitch(buffer, widthStitches, heightStitches);
+    console.log('backStitch segments:', backStitch.length);
 
     // 実際の写真から色を抽出
     const extractedColors = await extractColors(buffer, targetColorCount, threadBrand);

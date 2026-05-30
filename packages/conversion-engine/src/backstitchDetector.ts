@@ -6,9 +6,12 @@ export async function detectBackStitch(
   gridWidth: number,
   gridHeight: number,
 ): Promise<BackStitchSegment[]> {
-  // Step 1: グレースケール化 + グリッドサイズにリサイズ
+  // 半サイズでSobel計算してピクセル数を1/4に削減（座標は後で×2）
+  const halfW = Math.ceil(gridWidth / 2);
+  const halfH = Math.ceil(gridHeight / 2);
+
   const gray = await sharp(imageBuffer)
-    .resize(gridWidth, gridHeight, { fit: 'fill' })
+    .resize(halfW, halfH, { fit: 'fill' })
     .grayscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -16,7 +19,6 @@ export async function detectBackStitch(
   const { data, info } = gray;
   const { width, height } = info;
 
-  // Step 2 & 3: Sobel カーネル
   const sobelX = [
     -1, 0, 1,
     -2, 0, 2,
@@ -28,9 +30,7 @@ export async function detectBackStitch(
      1,  2,  1,
   ];
 
-  // Step 4: エッジ強度マップを計算
   const edgeMap: number[] = new Array(width * height).fill(0);
-
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       let gx = 0, gy = 0;
@@ -46,10 +46,6 @@ export async function detectBackStitch(
     }
   }
 
-  // Step 5: 閾値でエッジを二値化（強いエッジのみ抽出）
-  let threshold = 80;
-  const segments: BackStitchSegment[] = [];
-
   const buildSegments = (thr: number): BackStitchSegment[] => {
     const result: BackStitchSegment[] = [];
     for (let y = 0; y < height - 1; y++) {
@@ -57,20 +53,20 @@ export async function detectBackStitch(
         const strength = edgeMap[y * width + x];
         if (strength < thr) continue;
 
-        // 右方向のセグメント
+        // 右方向（座標を×2してグリッド座標に戻す）
         if (x + 1 < width && edgeMap[y * width + (x + 1)] >= thr) {
           result.push({
-            fromX: x, fromY: y,
-            toX: x + 1, toY: y,
+            fromX: x * 2, fromY: y * 2,
+            toX: (x + 1) * 2, toY: y * 2,
             colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
             plyCount: strength > 150 ? 2 : 1,
           });
         }
-        // 下方向のセグメント
+        // 下方向
         if (y + 1 < height && edgeMap[(y + 1) * width + x] >= thr) {
           result.push({
-            fromX: x, fromY: y,
-            toX: x, toY: y + 1,
+            fromX: x * 2, fromY: y * 2,
+            toX: x * 2, toY: (y + 1) * 2,
             colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
             plyCount: strength > 150 ? 2 : 1,
           });
@@ -80,14 +76,10 @@ export async function detectBackStitch(
     return result;
   };
 
-  const first = buildSegments(threshold);
+  const first = buildSegments(80);
   // セグメント数が 5000 を超えた場合は閾値を 100 に上げて再計算
   if (first.length > 5000) {
-    threshold = 100;
-    segments.push(...buildSegments(threshold));
-  } else {
-    segments.push(...first);
+    return buildSegments(100);
   }
-
-  return segments;
+  return first;
 }

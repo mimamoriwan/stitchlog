@@ -1,160 +1,52 @@
-CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
+CLAUDE.mdを読んでから作業を開始してください。
 
-# タスク: バックステッチレイヤーの実装（輪郭・ヒゲ）
+# タスク: バックステッチ検出のパフォーマンス修正
 
-## 背景
-現在 layers.backStitch が空配列のまま。
-バックステッチはヒゲ・輪郭・細い線を表現する最重要レイヤー。
+## 確認してほしいこと
+まず現在の状況を確認する。
 
-## 実装方針
-sharp に Canny エッジ検出は存在しないため、
-Sobel演算子（convolution）でエッジ検出を実装する。
-OpenCV.js などの外部ライブラリは追加しない。
+1. route.ts で detectBackStitch の後にセグメント数をログ出力:
+   console.log('backStitch segments:', backStitchSegments.length);
 
-## 実装場所
-packages/conversion-engine/src/backstitchDetector.ts を新規作成。
+2. pnpm dev でサーバーログに出てくる数を確認して報告する。
 
-## backstitchDetector.ts の内容
+## 想定される問題と対処
 
-```typescript
-import sharp from 'sharp';
-import type { BackStitchSegment } from '@stitchlog/types';
+### セグメント数が5000超の場合
+backstitchDetector.ts の threshold を 80 → 120 に変更する。
+さらに超える場合は 150 まで上げる。
 
-export async function detectBackStitch(
-  imageBuffer: Buffer,
-  gridWidth: number,
-  gridHeight: number,
-): Promise<BackStitchSegment[]> {
-  // Step 1: グレースケール化 + グリッドサイズにリサイズ
-  const gray = await sharp(imageBuffer)
-    .resize(gridWidth, gridHeight, { fit: 'fill' })
-    .grayscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { data, info } = gray;
-  const { width, height } = info;
-
-  // Step 2: Sobel X
-  const sobelX = [
-    -1, 0, 1,
-    -2, 0, 2,
-    -1, 0, 1,
-  ];
-  // Step 3: Sobel Y
-  const sobelY = [
-    -1, -2, -1,
-     0,  0,  0,
-     1,  2,  1,
-  ];
-
-  // Step 4: エッジ強度マップを計算
-  const edgeMap: number[] = new Array(width * height).fill(0);
-
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      let gx = 0, gy = 0;
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          const pixel = data[(y + ky) * width + (x + kx)];
-          const ki = (ky + 1) * 3 + (kx + 1);
-          gx += pixel * sobelX[ki];
-          gy += pixel * sobelY[ki];
-        }
-      }
-      edgeMap[y * width + x] = Math.sqrt(gx * gx + gy * gy);
-    }
-  }
-
-  // Step 5: 閾値でエッジを二値化（強いエッジのみ抽出）
-  const threshold = 80;
-  const segments: BackStitchSegment[] = [];
-
-  for (let y = 0; y < height - 1; y++) {
-    for (let x = 0; x < width - 1; x++) {
-      const strength = edgeMap[y * width + x];
-      if (strength < threshold) continue;
-
-      // 右方向のセグメント
-      if (x + 1 < width && edgeMap[y * width + (x + 1)] >= threshold) {
-        segments.push({
-          x1: x, y1: y,
-          x2: x + 1, y2: y,
-          colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
-          ply: strength > 150 ? 2 : 1,
-        });
-      }
-      // 下方向のセグメント
-      if (y + 1 < height && edgeMap[(y + 1) * width + x] >= threshold) {
-        segments.push({
-          x1: x, y1: y,
-          x2: x, y2: y + 1,
-          colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
-          ply: strength > 150 ? 2 : 1,
-        });
-      }
-    }
-  }
-
-  return segments;
-}
-```
-
-## BackStitchSegment 型の確認・追加
-
-packages/types/src/index.ts に BackStitchSegment が定義されているか確認。
-なければ以下を追加:
+### それでも遅い場合
+Sobel演算をグリッドサイズではなく
+縮小画像（gridWidth/2 × gridHeight/2）で行い、
+座標を2倍にスケールアップして返す。
 
 ```typescript
-export interface BackStitchSegment {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  colorCode: string;
-  ply: 1 | 2;
-}
-```
+// リサイズを半分のサイズで行う
+const halfW = Math.ceil(gridWidth / 2);
+const halfH = Math.ceil(gridHeight / 2);
 
-## route.ts への組み込み
+const gray = await sharp(imageBuffer)
+  .resize(halfW, halfH, { fit: 'fill' })
+  .grayscale()
+  .raw()
+  .toBuffer({ resolveWithObject: true });
 
-apps/web/src/app/api/patterns/generate/route.ts を開き、
-extractColors の呼び出しの後に以下を追加:
-
-```typescript
-import { detectBackStitch } from '@stitchlog/conversion-engine';
-
-// extractColors の後
-const backStitchSegments = await detectBackStitch(
-  imageBuffer,
-  patternData.stitchCountX,
-  patternData.stitchCountY,
-);
-
-// レスポンスの layers.backStitch に設定
-patternData.layers.backStitch = backStitchSegments;
-```
-
-## 動作確認
-
-pnpm dev → localhost:3001 で変換 → DevTools Network → generate レスポンスで
-layers.backStitch が空配列でなく、セグメントが入っていることを確認。
-
-例:
-"backStitch": [
-  { "x1": 12, "y1": 5, "x2": 13, "y2": 5, "colorCode": "DMC-3799", "ply": 1 },
+// セグメント座標を2倍にスケール
+segments.push({
+  fromX: x * 2, fromY: y * 2,
+  toX: (x + 1) * 2, toY: y * 2,
   ...
-]
+});
+```
 
-## 制約
-- ライブラリ追加なし（sharp のみ使用）
-- セグメント数が 5000 を超える場合は threshold を 100 に上げて再計算する
-- エラーが出たら止まって報告する
+## 目標
+- 処理時間: 2秒以内
+- セグメント数: 1000〜3000程度
+- データサイズ: 1MB以内
 
-## コミット
-git commit -m "feat(conversion-engine): backstitch detection via Sobel edge map
+## まずセグメント数を報告してから修正に入ること
 
-- Sobel演算子でエッジ強度マップを生成
-- 閾値80以上のエッジをバックステッチセグメントとして登録
-- 強エッジ(>150): DMC-310 2ply、弱エッジ: DMC-3799 1ply"
+## コミット（修正後）
+git commit -m "perf(conversion-engine): optimize backstitch detection speed"
 git push
