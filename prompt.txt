@@ -1,48 +1,160 @@
-CLAUDE.mdを読んでから作業を開始してください。
+CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
 
-# タスク: カラーパレットの重複DMCコードを修正
+# タスク: バックステッチレイヤーの実装（輪郭・ヒゲ）
 
-## 問題
-k-meansで抽出した複数の色が同じDMCコードにマッチした場合、
-パレットに同じ colorCode が複数出てしまいReactのkey重複警告が出る。
+## 背景
+現在 layers.backStitch が空配列のまま。
+バックステッチはヒゲ・輪郭・細い線を表現する最重要レイヤー。
 
-## 修正1: データレベルで重複を排除（colorExtractor.ts）
+## 実装方針
+sharp に Canny エッジ検出は存在しないため、
+Sobel演算子（convolution）でエッジ検出を実装する。
+OpenCV.js などの外部ライブラリは追加しない。
 
-extractColors の return 直前に deduplicate 処理を追加する。
-同じ colorCode の色はマージし、crossStitchCount を合算する。
+## 実装場所
+packages/conversion-engine/src/backstitchDetector.ts を新規作成。
 
-palette.map(...) の後、return の前に以下を挿入:
+## backstitchDetector.ts の内容
 
-// 同じDMCコードをマージ
-const merged = new Map<string, typeof rawColors[0]>();
-for (const c of rawColors) {
-  if (merged.has(c.colorCode)) {
-    const existing = merged.get(c.colorCode)!;
-    existing.crossStitchCount += c.crossStitchCount;
-  } else {
-    merged.set(c.colorCode, { ...c });
+```typescript
+import sharp from 'sharp';
+import type { BackStitchSegment } from '@stitchlog/types';
+
+export async function detectBackStitch(
+  imageBuffer: Buffer,
+  gridWidth: number,
+  gridHeight: number,
+): Promise<BackStitchSegment[]> {
+  // Step 1: グレースケール化 + グリッドサイズにリサイズ
+  const gray = await sharp(imageBuffer)
+    .resize(gridWidth, gridHeight, { fit: 'fill' })
+    .grayscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { data, info } = gray;
+  const { width, height } = info;
+
+  // Step 2: Sobel X
+  const sobelX = [
+    -1, 0, 1,
+    -2, 0, 2,
+    -1, 0, 1,
+  ];
+  // Step 3: Sobel Y
+  const sobelY = [
+    -1, -2, -1,
+     0,  0,  0,
+     1,  2,  1,
+  ];
+
+  // Step 4: エッジ強度マップを計算
+  const edgeMap: number[] = new Array(width * height).fill(0);
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      let gx = 0, gy = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const pixel = data[(y + ky) * width + (x + kx)];
+          const ki = (ky + 1) * 3 + (kx + 1);
+          gx += pixel * sobelX[ki];
+          gy += pixel * sobelY[ki];
+        }
+      }
+      edgeMap[y * width + x] = Math.sqrt(gx * gx + gy * gy);
+    }
   }
+
+  // Step 5: 閾値でエッジを二値化（強いエッジのみ抽出）
+  const threshold = 80;
+  const segments: BackStitchSegment[] = [];
+
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const strength = edgeMap[y * width + x];
+      if (strength < threshold) continue;
+
+      // 右方向のセグメント
+      if (x + 1 < width && edgeMap[y * width + (x + 1)] >= threshold) {
+        segments.push({
+          x1: x, y1: y,
+          x2: x + 1, y2: y,
+          colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
+          ply: strength > 150 ? 2 : 1,
+        });
+      }
+      // 下方向のセグメント
+      if (y + 1 < height && edgeMap[(y + 1) * width + x] >= threshold) {
+        segments.push({
+          x1: x, y1: y,
+          x2: x, y2: y + 1,
+          colorCode: strength > 150 ? 'DMC-310' : 'DMC-3799',
+          ply: strength > 150 ? 2 : 1,
+        });
+      }
+    }
+  }
+
+  return segments;
 }
-return Array.from(merged.values());
+```
 
-※ rawColors は既存の palette.map(...) の結果を入れる変数名に変更する。
+## BackStitchSegment 型の確認・追加
 
-## 修正2: ReactのkeyをindexベースにフォールバックSafe化（page.tsx）
+packages/types/src/index.ts に BackStitchSegment が定義されているか確認。
+なければ以下を追加:
 
-257行目付近の key を以下に変更:
-key={`${color.colorCode}-${index}`}
+```typescript
+export interface BackStitchSegment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  colorCode: string;
+  ply: 1 | 2;
+}
+```
 
-※ 修正1でデータレベルの重複は排除されるが、
-  将来的な安全策としてindexを suffix に追加する。
+## route.ts への組み込み
+
+apps/web/src/app/api/patterns/generate/route.ts を開き、
+extractColors の呼び出しの後に以下を追加:
+
+```typescript
+import { detectBackStitch } from '@stitchlog/conversion-engine';
+
+// extractColors の後
+const backStitchSegments = await detectBackStitch(
+  imageBuffer,
+  patternData.stitchCountX,
+  patternData.stitchCountY,
+);
+
+// レスポンスの layers.backStitch に設定
+patternData.layers.backStitch = backStitchSegments;
+```
 
 ## 動作確認
-- localhost:3001 で変換
-- コンソールエラーが0件になることを確認
-- パレットに同じDMCコードが重複して表示されないことを確認
+
+pnpm dev → localhost:3001 で変換 → DevTools Network → generate レスポンスで
+layers.backStitch が空配列でなく、セグメントが入っていることを確認。
+
+例:
+"backStitch": [
+  { "x1": 12, "y1": 5, "x2": 13, "y2": 5, "colorCode": "DMC-3799", "ply": 1 },
+  ...
+]
+
+## 制約
+- ライブラリ追加なし（sharp のみ使用）
+- セグメント数が 5000 を超える場合は threshold を 100 に上げて再計算する
+- エラーが出たら止まって報告する
 
 ## コミット
-git commit -m "fix(conversion-engine): deduplicate DMC color codes in palette
+git commit -m "feat(conversion-engine): backstitch detection via Sobel edge map
 
-同じDMCコードにマッチした複数色をマージして重複を排除。
-Reactのkey重複警告も解消。"
+- Sobel演算子でエッジ強度マップを生成
+- 閾値80以上のエッジをバックステッチセグメントとして登録
+- 強エッジ(>150): DMC-310 2ply、弱エッジ: DMC-3799 1ply"
 git push
