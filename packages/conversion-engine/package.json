@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@stitchlog/types": "workspace:*"
+    "@stitchlog/types": "workspace:*",
+    "sharp": "*"
   }
 }

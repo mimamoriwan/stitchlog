@@ -8,18 +8,8 @@ import type {
   PatternColor,
   CrossStitchCell,
 } from '@stitchlog/types';
+import { extractColors } from '@stitchlog/conversion-engine';
 
-// スタブ用 DMC 定番 8 色
-const STUB_COLORS: PatternColor[] = [
-  { colorCode: 'DMC-3865', colorName: 'Winter White', hexValue: '#F5F0E8', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: true,  isCatchlight: false },
-  { colorCode: 'DMC-310',  colorName: 'Black',        hexValue: '#000000', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-321',  colorName: 'Red',          hexValue: '#C62B38', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-336',  colorName: 'Navy Blue',    hexValue: '#1B3A6B', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-433',  colorName: 'Brown',        hexValue: '#8B4513', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-472',  colorName: 'Ultra Lt Avocado', hexValue: '#A8C96E', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-742',  colorName: 'Lt Tangerine', hexValue: '#F9B81F', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: false },
-  { colorCode: 'DMC-blanc', colorName: 'White',       hexValue: '#FFFFFF', crossStitchCount: 0, backStitchLength: 0, frenchKnotCount: 0, quarterStitchCount: 0, skeinCount: 1, isBackground: false, isCatchlight: true },
-];
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -57,14 +47,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const widthCm = Math.round((widthStitches / aidaCount) * 2.54 * 10) / 10;
     const heightCm = Math.round((heightStitches / aidaCount) * 2.54 * 10) / 10;
 
-    // スタブ: グリッドをランダムな色で埋める
-    const paletteSize = Math.min(targetColorCount, STUB_COLORS.length);
-    const palette = STUB_COLORS.slice(0, paletteSize);
+    // 実際の写真から色を抽出
+    const extractedColors = await extractColors(buffer, targetColorCount, threadBrand);
+    const paletteSize = extractedColors.length;
+    const palette = extractedColors;
+
+    // 各ピクセルを最近傍色に割り当て（縮小画像ではなくステッチグリッドで計算）
+    const { data: gridData } = await sharp(buffer)
+      .resize(widthStitches, heightStitches, { fit: 'fill' })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
     const crossStitch: CrossStitchCell[] = [];
     for (let y = 0; y < heightStitches; y++) {
       for (let x = 0; x < widthStitches; x++) {
-        const colorIndex = Math.floor(Math.random() * paletteSize);
-        crossStitch.push({ x, y, colorCode: palette[colorIndex].colorCode });
+        const idx = (y * widthStitches + x) * 3;
+        const px = { r: gridData[idx], g: gridData[idx + 1], b: gridData[idx + 2] };
+        const pxLab = rgbToLab(px);
+        let minDist = Infinity;
+        let minColorCode = palette[0].colorCode;
+        palette.forEach(c => {
+          const cRgb = hexToRgb(c.hexValue);
+          if (!cRgb) return;
+          const d = deltaE(pxLab, rgbToLab(cRgb));
+          if (d < minDist) { minDist = d; minColorCode = c.colorCode; }
+        });
+        crossStitch.push({ x, y, colorCode: minColorCode });
       }
     }
 
@@ -96,7 +105,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         estimatedHoursMin,
         estimatedHoursMax,
         generatedAt: new Date().toISOString(),
-        conversionNotes: ['⚠ スタブ実装: 変換ロジック未実装のため色はランダムです'],
+        conversionNotes: ['✓ 写真から色を抽出済み（バックステッチ・フレンチノット・糸ブランドマッチングは次のフェーズで実装）'],
       },
       colorPalette,
       layers: {
@@ -112,4 +121,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('Conversion error:', error);
     return NextResponse.json({ status: 'fail', errors: ['変換中にエラーが発生しました'] } satisfies ConversionResult, { status: 500 });
   }
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return null;
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+
+function rgbToLab(rgb: { r: number; g: number; b: number }) {
+  const linearize = (v: number) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const r = linearize(rgb.r), g = linearize(rgb.g), b = linearize(rgb.b);
+  const X = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
+  const Y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;
+  const Z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041;
+  const f = (t: number) => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  return { L: 116 * f(Y) - 16, a: 500 * (f(X / 0.95047) - f(Y)), b: 200 * (f(Y) - f(Z / 1.08883)) };
+}
+
+function deltaE(a: ReturnType<typeof rgbToLab>, b: ReturnType<typeof rgbToLab>) {
+  return Math.sqrt((a.L-b.L)**2 + (a.a-b.a)**2 + (a.b-b.b)**2);
 }

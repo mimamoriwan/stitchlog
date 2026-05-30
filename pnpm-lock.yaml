@@ -20,6 +20,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.5.0
         version: 1.5.0(@types/react@19.2.15)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@stitchlog/conversion-engine':
+        specifier: workspace:*
+        version: link:../../packages/conversion-engine
       '@stitchlog/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -87,6 +90,9 @@ importers:
       '@stitchlog/types':
         specifier: workspace:*
         version: link:../types
+      sharp:
+        specifier: '*'
+        version: 0.34.5
 
   packages/db:
     dependencies:
