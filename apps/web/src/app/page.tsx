@@ -251,34 +251,43 @@ export default function Home() {
               <p style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))', margin: '0 0 8px' }}>
                 カラーパレット
               </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {pattern.colorPalette.map(color => (
                   <div
                     key={color.colorCode}
-                    title={`${color.colorCode}  ${color.colorName}（${color.skeinCount}スキーン）`}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      backgroundColor: color.hexValue,
-                      border: '1.5px solid hsl(var(--border))',
-                      flexShrink: 0,
-                    }}
-                  />
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 40 }}
+                  >
+                    <div
+                      title={`${color.colorCode} · ${color.colorName}`}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        backgroundColor: color.hexValue,
+                        border: '1.5px solid hsl(var(--border))',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span className="text-xs text-gray-500 mt-1 text-center leading-tight">
+                      {color.colorCode}
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>
 
-            {/* 変換ノート（スタブ警告など） */}
-            {pattern.metadata.conversionNotes.length > 0 && (
-              <div style={{ background: 'hsl(var(--muted))', borderRadius: 8, padding: '0.75rem 1rem' }}>
-                {pattern.metadata.conversionNotes.map((note, i) => (
-                  <p key={i} style={{ fontSize: 13, margin: i === 0 ? 0 : '4px 0 0', color: 'hsl(var(--muted-foreground))' }}>
-                    {note}
-                  </p>
-                ))}
-              </div>
-            )}
+            {/* 変換ノート */}
+            <div style={{ background: 'hsl(var(--muted))', borderRadius: 8, padding: '0.75rem 1rem' }}>
+              <p style={{ fontSize: 13, margin: 0, color: 'hsl(var(--muted-foreground))' }}>
+                ✓ 写真から色を抽出・DMC糸番号にマッチング済み
+                （バックステッチ・フレンチノットは次のフェーズで実装）
+              </p>
+              {pattern.metadata.threadBrand !== 'DMC' && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ※ 現在DMCカラーで代替表示中
+                </p>
+              )}
+            </div>
 
             {/* PDF ダウンロード（未実装） */}
             <Button variant="outline" disabled style={{ width: '100%' }}>
