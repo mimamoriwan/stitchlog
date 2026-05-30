@@ -1,65 +1,294 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useRef, useCallback, DragEvent, ChangeEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import type { ThreadBrand, AidaCount, ConversionResult } from '@stitchlog/types';
+
+const SIZE_PRESETS: Record<string, { label: string; widthStitches: number }> = {
+  small:    { label: 'ミニ 8cm×8cm',   widthStitches: 44  },
+  standard: { label: '標準 15cm×15cm', widthStitches: 82  },
+  large:    { label: '大判 25cm×25cm', widthStitches: 137 },
+};
+
+const THREAD_BRANDS: ThreadBrand[] = ['DMC', 'Olympus', 'Cosmo', 'Anchor'];
 
 export default function Home() {
+  const [file, setFile]           = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const [threadBrand, setThreadBrand] = useState<ThreadBrand>('DMC');
+  const [sizePreset, setSizePreset]   = useState('standard');
+  const [aidaCount]                   = useState<AidaCount>(14);
+  const [colorCount, setColorCount]   = useState(12);
+
+  const [isLoading, setIsLoading]     = useState(false);
+  const [result, setResult]           = useState<ConversionResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleFile = useCallback(
+    (f: File) => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setFile(f);
+      setPreviewUrl(URL.createObjectURL(f));
+      setResult(null);
+      setErrorMessage(null);
+    },
+    [previewUrl],
+  );
+
+  const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) handleFile(e.target.files[0]);
+  };
+
+  const onDragOver  = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragging(true); };
+  const onDragLeave = () => setIsDragging(false);
+  const onDrop      = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+  };
+
+  const handleConvert = async () => {
+    if (!file) return;
+    setIsLoading(true);
+    setResult(null);
+    setErrorMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('threadBrand', threadBrand);
+      formData.append('aidaCount', String(aidaCount));
+      formData.append('targetColorCount', String(colorCount));
+      formData.append('targetWidthStitches', String(SIZE_PRESETS[sizePreset].widthStitches));
+
+      const res  = await fetch('/api/patterns/generate', { method: 'POST', body: formData });
+      const data: ConversionResult = await res.json();
+
+      if (!res.ok || data.status === 'fail') {
+        setErrorMessage(data.errors?.join('\n') ?? 'エラーが発生しました');
+      } else {
+        setResult(data);
+      }
+    } catch {
+      setErrorMessage('通信エラーが発生しました。もう一度お試しください。');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const pattern = result?.pattern;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main style={{ maxWidth: 680, margin: '0 auto', padding: '2rem 1rem' }}>
+
+      {/* ヘッダー */}
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Stitchlog</h1>
+        <p style={{ color: 'hsl(var(--muted-foreground))', margin: '4px 0 0', fontSize: 15 }}>
+          写真から刺繍図案を作ろう
+        </p>
+      </div>
+
+      {/* DropZone */}
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        style={{
+          border: `2px dashed ${isDragging ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+          borderRadius: 12,
+          padding: '2rem',
+          textAlign: 'center',
+          cursor: 'pointer',
+          background: isDragging ? 'hsl(var(--accent))' : 'transparent',
+          marginBottom: '1.5rem',
+          transition: 'border-color 0.15s, background 0.15s',
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/heic,image/heif"
+          style={{ display: 'none' }}
+          onChange={onInputChange}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+        {previewUrl ? (
+          <div>
+            <img
+              src={previewUrl}
+              alt="プレビュー"
+              style={{ maxHeight: 200, maxWidth: '100%', borderRadius: 8, marginBottom: 8 }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            <p style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
+              {file?.name}　（クリックで変更）
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontSize: 16, margin: '0 0 6px', fontWeight: 500 }}>
+              ここに写真をドラッグ&ドロップ
+            </p>
+            <p style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
+              または クリックして選択 · jpeg / png / heic · 10MB 以内
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* 設定パネル */}
+      <Card style={{ marginBottom: '1.5rem' }}>
+        <CardContent style={{ paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* 糸ブランド */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 14, minWidth: 108 }}>糸ブランド</span>
+            <Select value={threadBrand} onValueChange={(v) => setThreadBrand(v as ThreadBrand)}>
+              <SelectTrigger style={{ width: 180 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {THREAD_BRANDS.map(b => (
+                  <SelectItem key={b} value={b}>{b}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 仕上がりサイズ */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 14, minWidth: 108 }}>仕上がりサイズ</span>
+            <Select value={sizePreset} onValueChange={(v) => { if (v !== null) setSizePreset(v); }}>
+              <SelectTrigger style={{ width: 180 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(SIZE_PRESETS).map(([key, { label }]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 使用色数 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 14, minWidth: 108 }}>使用色数</span>
+            <Slider
+              min={5}
+              max={25}
+              step={1}
+              value={[colorCount]}
+              onValueChange={(v) => setColorCount(Array.isArray(v) ? v[0] : v)}
+              style={{ flex: 1 }}
+            />
+            <span style={{ fontSize: 14, minWidth: 36, textAlign: 'right' }}>
+              {colorCount}色
+            </span>
+          </div>
+
+        </CardContent>
+      </Card>
+
+      {/* 変換ボタン */}
+      <Button
+        onClick={handleConvert}
+        disabled={!file || isLoading}
+        style={{ width: '100%', marginBottom: '1.5rem' }}
+      >
+        {isLoading ? '変換中...' : '変換する'}
+      </Button>
+
+      {/* エラー表示 */}
+      {errorMessage && (
+        <Card style={{ marginBottom: '1.5rem', borderColor: 'hsl(var(--destructive))' }}>
+          <CardContent style={{ paddingTop: '1.25rem' }}>
+            <p style={{ color: 'hsl(var(--destructive))', margin: 0, fontSize: 14, whiteSpace: 'pre-line' }}>
+              {errorMessage}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 変換結果 */}
+      {pattern && (
+        <Card>
+          <CardHeader>
+            <CardTitle style={{ fontSize: 16 }}>変換結果</CardTitle>
+          </CardHeader>
+          <CardContent style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* バッジ群 */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Badge variant="secondary">
+                {pattern.metadata.widthStitches} × {pattern.metadata.heightStitches} マス
+              </Badge>
+              <Badge variant="secondary">
+                {pattern.metadata.widthCm} × {pattern.metadata.heightCm} cm
+              </Badge>
+              <Badge variant="secondary">
+                推定 {pattern.metadata.estimatedHoursMin}〜{pattern.metadata.estimatedHoursMax} 時間
+              </Badge>
+              <Badge variant="secondary">
+                {pattern.metadata.colorCount}色 · {pattern.metadata.threadBrand}
+              </Badge>
+            </div>
+
+            {/* カラーパレット */}
+            <div>
+              <p style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))', margin: '0 0 8px' }}>
+                カラーパレット
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {pattern.colorPalette.map(color => (
+                  <div
+                    key={color.colorCode}
+                    title={`${color.colorCode}  ${color.colorName}（${color.skeinCount}スキーン）`}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      backgroundColor: color.hexValue,
+                      border: '1.5px solid hsl(var(--border))',
+                      flexShrink: 0,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* 変換ノート（スタブ警告など） */}
+            {pattern.metadata.conversionNotes.length > 0 && (
+              <div style={{ background: 'hsl(var(--muted))', borderRadius: 8, padding: '0.75rem 1rem' }}>
+                {pattern.metadata.conversionNotes.map((note, i) => (
+                  <p key={i} style={{ fontSize: 13, margin: i === 0 ? 0 : '4px 0 0', color: 'hsl(var(--muted-foreground))' }}>
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* PDF ダウンロード（未実装） */}
+            <Button variant="outline" disabled style={{ width: '100%' }}>
+              PDF をダウンロード（準備中）
+            </Button>
+
+          </CardContent>
+        </Card>
+      )}
+
+    </main>
   );
 }
