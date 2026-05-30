@@ -1,5 +1,6 @@
 import sharp from 'sharp';
 import type { PatternColor, ThreadBrand } from '@stitchlog/types';
+import { matchToThreadColor } from './threadMatcher';
 
 // ----------------------------------------
 // 型定義
@@ -175,16 +176,19 @@ export async function extractColors(
   return palette.map((color, i) => {
     const pixelCount = counts.get(i) ?? 0;
     const ratio = pixelCount / totalPixels;
+    const ratios = Array.from(counts.values()).map(v => v / totalPixels);
+    const hex = rgbToHex(color);
+    const matched = matchToThreadColor(hex, brand);
     return {
-      colorCode: `${brand}-custom-${i + 1}`,
-      colorName: `Color ${i + 1}`,
-      hexValue: rgbToHex(color),
-      crossStitchCount: 0,   // route.ts で計算
+      colorCode: `${matched.brand}-${matched.code}`,
+      colorName: matched.name,
+      hexValue: matched.hex,
+      crossStitchCount: 0,
       backStitchLength: 0,
       frenchKnotCount: 0,
       quarterStitchCount: 0,
       skeinCount: 1,
-      isBackground: ratio === Math.max(...Array.from(counts.values()).map(v => v / totalPixels)),
+      isBackground: ratio === Math.max(...ratios),
       isCatchlight: false,
     };
   });

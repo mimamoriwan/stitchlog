@@ -3,3 +3,4 @@
 // 変換は「色近似問題」ではなく「表現手段の選択問題」
 
 export { extractColors } from './colorExtractor';
+export { matchToThreadColor } from './threadMatcher';
