@@ -1,135 +1,42 @@
-CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
+CLAUDE.mdを読んでから作業を開始してください。
 
-# タスク: フレンチノットレイヤーの実装（目のハイライト・点）
+# タスク: PDFにバックステッチレイヤーを反映
 
 ## 背景
-現在 layers.frenchKnot が空配列のまま。
-フレンチノットは目の光・小さな点を表現する。
-バックステッチと違い「線」ではなく「点」として記録する。
+generatePdf.ts は現在クロスステッチグリッドのみ描画している。
+layers.backStitch のセグメントをグリッド上に線として重ねて描画する。
+
+## 仕様
+
+### 線の描画ルール
+- 各セグメント（fromX/fromY → toX/toY）を jspdf の line() で描画
+- plyCount === 2（強エッジ）→ 線幅 0.6pt
+- plyCount === 1（弱エッジ）→ 線幅 0.3pt
+- colorCode が "DMC-310"  → setDrawColor(0, 0, 0)
+- colorCode が "DMC-3799" → setDrawColor(43, 43, 43)
+- 上記以外               → setDrawColor(0, 0, 0)（フォールバック）
+
+### 座標計算
+グリッドの描画開始 X/Y オフセットと cellSize を使い、
+各マス目の中央を通るよう計算する（fromX * cellSize + offsetX + cellSize/2 など）。
+既存のグリッド描画変数をそのまま流用すること。変数名は必ず既存コードを確認してから使う。
 
 ## 実装場所
-packages/conversion-engine/src/frenchKnotDetector.ts を新規作成。
-
-## 検出ロジック
-「周囲より極端に明るい孤立した点」= フレンチノット候補。
-
-Step 1: グリッドサイズにリサイズ + グレースケール化
-Step 2: 各ピクセルの輝度を取得
-Step 3: 3×3近傍の平均輝度より 60以上明るい孤立点を検出
-Step 4: 検出点が隣接していない（孤立している）ことを確認
-Step 5: FrenchKnotPoint として登録
-
-## frenchKnotDetector.ts の内容
-
-```typescript
-import sharp from 'sharp';
-import type { FrenchKnotPoint } from '@stitchlog/types';
-
-export async function detectFrenchKnots(
-  imageBuffer: Buffer,
-  gridWidth: number,
-  gridHeight: number,
-): Promise<FrenchKnotPoint[]> {
-  // バックステッチと同様に半サイズで処理
-  const halfW = Math.ceil(gridWidth / 2);
-  const halfH = Math.ceil(gridHeight / 2);
-
-  const { data, info } = await sharp(imageBuffer)
-    .resize(halfW, halfH, { fit: 'fill' })
-    .grayscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { width, height } = info;
-  const knots: FrenchKnotPoint[] = [];
-
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const center = data[y * width + x];
-
-      // 3×3近傍の平均輝度（中心を除く8近傍）
-      let neighborSum = 0;
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          if (ky === 0 && kx === 0) continue;
-          neighborSum += data[(y + ky) * width + (x + kx)];
-        }
-      }
-      const neighborAvg = neighborSum / 8;
-
-      // 近傍より60以上明るく、かつ輝度200以上（十分明るい）の孤立点
-      if (center - neighborAvg >= 60 && center >= 200) {
-        knots.push({
-          x: x * 2,  // 座標を2倍にスケールアップ
-          y: y * 2,
-          colorCode: 'DMC-blanc',
-          plyCount: 1,
-        });
-      }
-    }
-  }
-
-  // 上限300点（過検出防止）
-  return knots.slice(0, 300);
-}
-```
-
-## FrenchKnotPoint 型の確認・追加
-
-packages/types/src/index.ts に FrenchKnotPoint が定義されているか確認。
-なければ以下を追加:
-
-```typescript
-export interface FrenchKnotPoint {
-  x: number;
-  y: number;
-  colorCode: string;
-  plyCount: 1 | 2;
-}
-```
-
-## route.ts への組み込み
-
-detectBackStitch の呼び出しの直後に追加:
-
-```typescript
-import { detectFrenchKnots } from '@stitchlog/conversion-engine';
-
-const frenchKnots = await detectFrenchKnots(
-  imageBuffer,   // バックステッチと同じ変数名を使う
-  patternData.stitchCountX,
-  patternData.stitchCountY,
-);
-patternData.layers.frenchKnot = frenchKnots;
-```
-
-※ 変数名は既存の route.ts に合わせて調整すること。
-
-## index.ts にエクスポートを追加
-
-packages/conversion-engine/src/index.ts に追加:
-export { detectFrenchKnots } from './frenchKnotDetector';
-
-## 動作確認
-
-pnpm dev → localhost:3001 でゴールデンレトリバーの写真を変換。
-DevTools → generate レスポンスで layers.frenchKnot を確認:
-
-- 空配列でなければOK（写真によっては0件もあり得る）
-- 300件を超えていないこと
-- 処理時間が前回（501ms）から大幅に増えていないこと
-
-コンソールにも件数をログ出力:
-console.log('frenchKnot points:', frenchKnots.length);
+apps/web/src/lib/generatePdf.ts の「グリッド描画ブロックの直後」に追加。
+既存のグリッド描画ループとオフセット変数を確認してから実装すること。
 
 ## 制約
-- ライブラリ追加なし
+- jspdf の setDrawColor / setLineWidth / line() のみ使用
+- 外部ライブラリ追加なし
+- グリッド描画後にバックステッチを上書きする順序を守る（透過でないため）
 - エラーが出たら止まって報告する
 
-## コミット
-git commit -m "feat(conversion-engine): french knot detection for eye highlights
+## 動作確認
+1. pnpm dev でサーバー起動
+2. 写真をアップロードして変換
+3. PDFダウンロード → Acrobat/プレビューで輪郭線が表示されることを確認
 
-- 近傍より60以上明るい孤立点をフレンチノット候補として検出
-- 半サイズ処理でパフォーマンスを維持
-- 上限300点で過検出を防止"
+## コミット
+git add -A
+git commit -m "feat(web): render backstitch layer in PDF output"
 git push

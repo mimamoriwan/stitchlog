@@ -66,19 +66,38 @@ export function generatePdf(pattern: PatternData, filename: string): void {
   curY += 8;
 
   // --- グリッド ---
+  const gridStartY = curY;
+
   for (let row = 0; row < metadata.heightStitches; row++) {
     for (let col = 0; col < metadata.widthStitches; col++) {
       const code = grid[row][col];
       const [r, g, b] = hexToRgb((code ? colorMap.get(code) : undefined) ?? '#CCCCCC');
       doc.setFillColor(r, g, b);
-      doc.rect(MARGIN + col * cellSize, curY + row * cellSize, cellSize, cellSize, 'F');
+      doc.rect(MARGIN + col * cellSize, gridStartY + row * cellSize, cellSize, cellSize, 'F');
     }
   }
 
   // グリッド外枠
   doc.setDrawColor(150, 150, 150);
   doc.setLineWidth(0.2);
-  doc.rect(MARGIN, curY, gridW, gridH, 'S');
+  doc.rect(MARGIN, gridStartY, gridW, gridH, 'S');
+
+  // --- バックステッチ（グリッドの上に重ねて描画）---
+  for (const seg of layers.backStitch) {
+    doc.setLineWidth(seg.plyCount === 2 ? 0.6 : 0.3);
+    if (seg.colorCode === 'DMC-310') {
+      doc.setDrawColor(0, 0, 0);
+    } else if (seg.colorCode === 'DMC-3799') {
+      doc.setDrawColor(43, 43, 43);
+    } else {
+      doc.setDrawColor(0, 0, 0);
+    }
+    const x1 = MARGIN + seg.fromX * cellSize + cellSize / 2;
+    const y1 = gridStartY + seg.fromY * cellSize + cellSize / 2;
+    const x2 = MARGIN + seg.toX * cellSize + cellSize / 2;
+    const y2 = gridStartY + seg.toY * cellSize + cellSize / 2;
+    doc.line(x1, y1, x2, y2);
+  }
 
   curY += gridH + 6;
 
