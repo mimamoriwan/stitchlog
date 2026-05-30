@@ -253,9 +253,9 @@ export default function Home() {
                 カラーパレット
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {pattern.colorPalette.map(color => (
+                {pattern.colorPalette.map((color, index) => (
                   <div
-                    key={color.colorCode}
+                    key={`${color.colorCode}-${index}`}
                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 40 }}
                   >
                     <div

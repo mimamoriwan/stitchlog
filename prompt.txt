@@ -1,53 +1,48 @@
 CLAUDE.mdを読んでから作業を開始してください。
 
-# タスク: PDF出力（図案を印刷できるようにする）
+# タスク: カラーパレットの重複DMCコードを修正
 
-## 背景
-「PDFをダウンロード」ボタンが disabled のままになっている。
-変換結果の PatternData を受け取り、A4 PDF として出力する。
+## 問題
+k-meansで抽出した複数の色が同じDMCコードにマッチした場合、
+パレットに同じ colorCode が複数出てしまいReactのkey重複警告が出る。
 
-## ライブラリのインストール
-pnpm --filter @stitchlog/web add jspdf
+## 修正1: データレベルで重複を排除（colorExtractor.ts）
 
-※ jspdf v2以降は型定義が同梱されているため @types/jspdf は不要。
-  インストール後に型エラーが出た場合のみ追加すること。
+extractColors の return 直前に deduplicate 処理を追加する。
+同じ colorCode の色はマージし、crossStitchCount を合算する。
 
-## 実装場所
-apps/web/src/lib/generatePdf.ts を新規作成し、page.tsx から呼び出す。
-クライアントサイドで生成する（大きなデータをサーバー経由にしないため）。
+palette.map(...) の後、return の前に以下を挿入:
 
-## PDF仕様
-- 用紙: A4縦（210mm × 297mm）
-- 構成:
-  1. タイトルエリア: "Stitchlog Pattern" + 生成日（YYYY-MM-DD）
-  2. グリッド: crossStitch レイヤーの各マスを色で塗った正方形
-     （バックステッチ・フレンチノットは今回省略）
-  3. カラーパレット: 色丸 + 糸コード + 色名
-  4. メタデータ: ステッチ数・仕上がりサイズ・推定時間
+// 同じDMCコードをマージ
+const merged = new Map<string, typeof rawColors[0]>();
+for (const c of rawColors) {
+  if (merged.has(c.colorCode)) {
+    const existing = merged.get(c.colorCode)!;
+    existing.crossStitchCount += c.crossStitchCount;
+  } else {
+    merged.set(c.colorCode, { ...c });
+  }
+}
+return Array.from(merged.values());
 
-## グリッドのセルサイズ
-- 基準: 使用可能幅 170mm をグリッド幅で割る
-- 137マス以上の場合は自動縮小（最小 0.8mm/セル）
-- グリッドが1ページに収まらない場合は縮小優先（複数ページ禁止）
+※ rawColors は既存の palette.map(...) の結果を入れる変数名に変更する。
 
-## page.tsx の変更
-- 「PDFをダウンロード」ボタンの disabled を外す
-- クリック時に generatePdf(patternData) を呼び出す
-- ファイル名: stitchlog-pattern-{YYYY-MM-DD}.pdf
+## 修正2: ReactのkeyをindexベースにフォールバックSafe化（page.tsx）
 
-## 作業前の確認
-PatternData の型（packages/types/src/index.ts）と
-route.ts のレスポンス構造を先に確認し、
-グリッドデータがどの形式で格納されているか把握してから実装する。
+257行目付近の key を以下に変更:
+key={`${color.colorCode}-${index}`}
 
-## 制約
-- ライブラリ追加は jspdf のみ
-- エラーが出たら止まって報告する
+※ 修正1でデータレベルの重複は排除されるが、
+  将来的な安全策としてindexを suffix に追加する。
+
+## 動作確認
+- localhost:3001 で変換
+- コンソールエラーが0件になることを確認
+- パレットに同じDMCコードが重複して表示されないことを確認
 
 ## コミット
-git commit -m "feat(web): PDF download for cross-stitch pattern
+git commit -m "fix(conversion-engine): deduplicate DMC color codes in palette
 
-- generatePdf.ts 追加（jspdf、クライアントサイド生成）
-- A4縦・グリッド＋カラーパレット＋メタデータ構成
-- 137マス以上はセルサイズ自動縮小"
+同じDMCコードにマッチした複数色をマージして重複を排除。
+Reactのkey重複警告も解消。"
 git push

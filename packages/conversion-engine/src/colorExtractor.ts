@@ -173,7 +173,7 @@ export async function extractColors(
 
   const totalPixels = info.width * info.height;
 
-  return palette.map((color, i) => {
+  const rawColors = palette.map((color, i) => {
     const pixelCount = counts.get(i) ?? 0;
     const ratio = pixelCount / totalPixels;
     const ratios = Array.from(counts.values()).map(v => v / totalPixels);
@@ -192,4 +192,16 @@ export async function extractColors(
       isCatchlight: false,
     };
   });
+
+  // 同じDMCコードをマージ
+  const dedupMap = new Map<string, typeof rawColors[0]>();
+  for (const c of rawColors) {
+    if (dedupMap.has(c.colorCode)) {
+      const existing = dedupMap.get(c.colorCode)!;
+      existing.crossStitchCount += c.crossStitchCount;
+    } else {
+      dedupMap.set(c.colorCode, { ...c });
+    }
+  }
+  return Array.from(dedupMap.values());
 }
