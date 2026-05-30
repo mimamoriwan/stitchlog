@@ -1,0 +1,245 @@
+CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
+
+# Stitchlog 開発環境セットアップ
+
+以下を順番に実行してください。各ステップ完了後に報告してから次へ進むこと。
+
+## Step 1: ファイル整理
+
+- ルート直下の `06_stitchlog_spec.md` を削除する（docs/ に同じファイルがある）
+- ルート直下の `stitchlog_session_handoff.md` を `docs/` へ移動する
+- `docs/06_stitchlog_spec.md` を `docs/SPEC.md` にリネームする
+
+## Step 2: pnpm monorepo 初期化
+
+以下の内容でファイルを作成する。
+
+`pnpm-workspace.yaml`:
+```yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+ルートの `package.json`:
+```json
+{
+  "name": "stitchlog",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint"
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
+```
+
+`turbo.json`:
+```json
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {}
+  }
+}
+```
+
+ルートの `tsconfig.base.json`:
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  }
+}
+```
+
+## Step 3: Next.js アプリ作成
+
+`apps/` ディレクトリを作成し、その中で以下を実行する:
+pnpm create next-app@latest web 
+--typescript 
+--tailwind 
+--eslint 
+--app 
+--src-dir 
+--import-alias "@/*" 
+--no-git
+
+作成後、`apps/web/package.json` の name を `"@stitchlog/web"` に変更する。
+
+## Step 4: shadcn/ui 初期化
+
+`apps/web/` ディレクトリで以下を実行する:
+pnpm dlx shadcn@latest init --defaults
+
+## Step 5: packages ディレクトリを作成
+
+以下の3つのパッケージを作成する（各パッケージに最小限のファイルのみ）:
+
+### packages/types/
+
+`package.json`:
+```json
+{
+  "name": "@stitchlog/types",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
+}
+```
+
+`tsconfig.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+```
+
+`src/index.ts`:
+```typescript
+// Stitchlog 共通型定義
+// conversion-engine の PatternData 型はここで定義する
+
+export type ThreadBrand = 'DMC' | 'Olympus' | 'Cosmo' | 'Anchor';
+export type AidaCount = 14 | 18 | 28;
+
+// TODO: PatternData, StitchLayer などの型をここに追加していく
+```
+
+### packages/conversion-engine/
+
+`package.json`:
+```json
+{
+  "name": "@stitchlog/conversion-engine",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@stitchlog/types": "workspace:*"
+  }
+}
+```
+
+`tsconfig.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+```
+
+`src/index.ts`:
+```typescript
+// 写真→クロスステッチ変換エンジン
+// 実装前に .claude/rules/cross-stitch-conversion.md を必ず参照すること
+// 変換は「色近似問題」ではなく「表現手段の選択問題」
+
+export {}; // Phase 1 で実装
+```
+
+### packages/db/
+
+`package.json`:
+```json
+{
+  "name": "@stitchlog/db",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@stitchlog/types": "workspace:*"
+  }
+}
+```
+
+`tsconfig.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+```
+
+`src/index.ts`:
+```typescript
+// Drizzle ORM スキーマ定義
+// Phase 1 で実装
+
+export {};
+```
+
+## Step 6: 依存関係インストールと動作確認
+
+ルートで `pnpm install` を実行する。
+
+次に `apps/web/` で `pnpm dev` を実行し、Next.js が localhost:3000 で起動することを確認する。
+
+確認できたら `Ctrl+C` で止める。
+
+## Step 7: 最初の git commit
+git add -A
+git commit -m "chore: initial monorepo setup
+
+pnpm workspace + Turborepo
+Next.js 14 App Router (apps/web)
+shadcn/ui
+packages: types, conversion-engine, db (placeholder)
+CLAUDE.md + .claude/rules/cross-stitch-conversion.md"
+
+## Step 8: GitHub にプッシュ
+
+```bash
+git remote add origin https://github.com/mimamoriwan/stitchlog.git
+git branch -M main
+git push -u origin main
+```
+
+プッシュ後、https://github.com/mimamoriwan/stitchlog でファイルが見えることを確認して報告する。
+- git push でエラーが出た場合は自己解決せずそのまま報告する
+
+## 制約（必ず守ること）
+
+- 機能は一切実装しない（骨格のみ）
+- pnpm のみ使用（npm / yarn / bun は使わない）
+- create-next-app の対話プロンプトは `--no-git` フラグで回避する
+- 各ステップ完了後に「Step X 完了」と報告してから次へ進む
+- エラーが出たら止まって報告する（自己判断で続行しない）
