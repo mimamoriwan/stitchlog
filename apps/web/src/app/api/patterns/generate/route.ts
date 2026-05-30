@@ -8,7 +8,7 @@ import type {
   PatternColor,
   CrossStitchCell,
 } from '@stitchlog/types';
-import { extractColors, detectBackStitch } from '@stitchlog/conversion-engine';
+import { extractColors, detectBackStitch, detectFrenchKnots } from '@stitchlog/conversion-engine';
 
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -50,6 +50,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // バックステッチ検出（Sobel エッジ）
     const backStitch = await detectBackStitch(buffer, widthStitches, heightStitches);
     console.log('backStitch segments:', backStitch.length);
+    const frenchKnots = await detectFrenchKnots(buffer, widthStitches, heightStitches);
+    console.log('frenchKnot points:', frenchKnots.length);
 
     // 実際の写真から色を抽出
     const extractedColors = await extractColors(buffer, targetColorCount, threadBrand);
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         crossStitch,
         quarterStitch: [],
         backStitch,
-        frenchKnots: [],
+        frenchKnots,
       },
     };
 

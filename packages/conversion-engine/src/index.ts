@@ -5,3 +5,4 @@
 export { extractColors } from './colorExtractor';
 export { matchToThreadColor } from './threadMatcher';
 export { detectBackStitch } from './backstitchDetector';
+export { detectFrenchKnots } from './frenchKnotDetector';

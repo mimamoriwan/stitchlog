@@ -1,52 +1,135 @@
-CLAUDE.mdを読んでから作業を開始してください。
+CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
 
-# タスク: バックステッチ検出のパフォーマンス修正
+# タスク: フレンチノットレイヤーの実装（目のハイライト・点）
 
-## 確認してほしいこと
-まず現在の状況を確認する。
+## 背景
+現在 layers.frenchKnot が空配列のまま。
+フレンチノットは目の光・小さな点を表現する。
+バックステッチと違い「線」ではなく「点」として記録する。
 
-1. route.ts で detectBackStitch の後にセグメント数をログ出力:
-   console.log('backStitch segments:', backStitchSegments.length);
+## 実装場所
+packages/conversion-engine/src/frenchKnotDetector.ts を新規作成。
 
-2. pnpm dev でサーバーログに出てくる数を確認して報告する。
+## 検出ロジック
+「周囲より極端に明るい孤立した点」= フレンチノット候補。
 
-## 想定される問題と対処
+Step 1: グリッドサイズにリサイズ + グレースケール化
+Step 2: 各ピクセルの輝度を取得
+Step 3: 3×3近傍の平均輝度より 60以上明るい孤立点を検出
+Step 4: 検出点が隣接していない（孤立している）ことを確認
+Step 5: FrenchKnotPoint として登録
 
-### セグメント数が5000超の場合
-backstitchDetector.ts の threshold を 80 → 120 に変更する。
-さらに超える場合は 150 まで上げる。
-
-### それでも遅い場合
-Sobel演算をグリッドサイズではなく
-縮小画像（gridWidth/2 × gridHeight/2）で行い、
-座標を2倍にスケールアップして返す。
+## frenchKnotDetector.ts の内容
 
 ```typescript
-// リサイズを半分のサイズで行う
-const halfW = Math.ceil(gridWidth / 2);
-const halfH = Math.ceil(gridHeight / 2);
+import sharp from 'sharp';
+import type { FrenchKnotPoint } from '@stitchlog/types';
 
-const gray = await sharp(imageBuffer)
-  .resize(halfW, halfH, { fit: 'fill' })
-  .grayscale()
-  .raw()
-  .toBuffer({ resolveWithObject: true });
+export async function detectFrenchKnots(
+  imageBuffer: Buffer,
+  gridWidth: number,
+  gridHeight: number,
+): Promise<FrenchKnotPoint[]> {
+  // バックステッチと同様に半サイズで処理
+  const halfW = Math.ceil(gridWidth / 2);
+  const halfH = Math.ceil(gridHeight / 2);
 
-// セグメント座標を2倍にスケール
-segments.push({
-  fromX: x * 2, fromY: y * 2,
-  toX: (x + 1) * 2, toY: y * 2,
-  ...
-});
+  const { data, info } = await sharp(imageBuffer)
+    .resize(halfW, halfH, { fit: 'fill' })
+    .grayscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height } = info;
+  const knots: FrenchKnotPoint[] = [];
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const center = data[y * width + x];
+
+      // 3×3近傍の平均輝度（中心を除く8近傍）
+      let neighborSum = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          if (ky === 0 && kx === 0) continue;
+          neighborSum += data[(y + ky) * width + (x + kx)];
+        }
+      }
+      const neighborAvg = neighborSum / 8;
+
+      // 近傍より60以上明るく、かつ輝度200以上（十分明るい）の孤立点
+      if (center - neighborAvg >= 60 && center >= 200) {
+        knots.push({
+          x: x * 2,  // 座標を2倍にスケールアップ
+          y: y * 2,
+          colorCode: 'DMC-blanc',
+          plyCount: 1,
+        });
+      }
+    }
+  }
+
+  // 上限300点（過検出防止）
+  return knots.slice(0, 300);
+}
 ```
 
-## 目標
-- 処理時間: 2秒以内
-- セグメント数: 1000〜3000程度
-- データサイズ: 1MB以内
+## FrenchKnotPoint 型の確認・追加
 
-## まずセグメント数を報告してから修正に入ること
+packages/types/src/index.ts に FrenchKnotPoint が定義されているか確認。
+なければ以下を追加:
 
-## コミット（修正後）
-git commit -m "perf(conversion-engine): optimize backstitch detection speed"
+```typescript
+export interface FrenchKnotPoint {
+  x: number;
+  y: number;
+  colorCode: string;
+  plyCount: 1 | 2;
+}
+```
+
+## route.ts への組み込み
+
+detectBackStitch の呼び出しの直後に追加:
+
+```typescript
+import { detectFrenchKnots } from '@stitchlog/conversion-engine';
+
+const frenchKnots = await detectFrenchKnots(
+  imageBuffer,   // バックステッチと同じ変数名を使う
+  patternData.stitchCountX,
+  patternData.stitchCountY,
+);
+patternData.layers.frenchKnot = frenchKnots;
+```
+
+※ 変数名は既存の route.ts に合わせて調整すること。
+
+## index.ts にエクスポートを追加
+
+packages/conversion-engine/src/index.ts に追加:
+export { detectFrenchKnots } from './frenchKnotDetector';
+
+## 動作確認
+
+pnpm dev → localhost:3001 でゴールデンレトリバーの写真を変換。
+DevTools → generate レスポンスで layers.frenchKnot を確認:
+
+- 空配列でなければOK（写真によっては0件もあり得る）
+- 300件を超えていないこと
+- 処理時間が前回（501ms）から大幅に増えていないこと
+
+コンソールにも件数をログ出力:
+console.log('frenchKnot points:', frenchKnots.length);
+
+## 制約
+- ライブラリ追加なし
+- エラーが出たら止まって報告する
+
+## コミット
+git commit -m "feat(conversion-engine): french knot detection for eye highlights
+
+- 近傍より60以上明るい孤立点をフレンチノット候補として検出
+- 半サイズ処理でパフォーマンスを維持
+- 上限300点で過検出を防止"
 git push
