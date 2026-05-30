@@ -1,51 +1,3 @@
-CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
-
-# タスク: 写真アップロードUI + 変換APIスタブ（Phase 1 フロー全通し）
-
-## 概要
-写真をアップロードして設定を選び変換ボタンを押すと結果が表示される
-一連のフローを実装する。変換ロジックはスタブ（仮データ）でよい。
-
----
-
-## Step 1: 依存パッケージを追加
-
-```bash
-# sharp を apps/web に追加（画像メタデータ取得用）
-pnpm --filter @stitchlog/web add sharp
-pnpm --filter @stitchlog/web add -D @types/sharp
-
-# @stitchlog/types を apps/web に追加
-# apps/web/package.json の dependencies に手動で追加する:
-# "@stitchlog/types": "workspace:*"
-
-# shadcn/ui コンポーネントを追加（対話プロンプトは --yes で自動承認）
-pnpm --filter @stitchlog/web dlx shadcn@latest add button select slider card badge
-```
-
----
-
-## Step 2: Next.js の設定更新
-
-apps/web/next.config.ts を以下に更新する:
-
-```typescript
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  transpilePackages: ['@stitchlog/types'],
-};
-
-export default nextConfig;
-```
-
----
-
-## Step 3: APIルートの実装
-
-### apps/web/src/app/api/patterns/generate/route.ts
-
-```typescript
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 import type {
@@ -161,12 +113,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ status: 'fail', errors: ['変換中にエラーが発生しました'] } satisfies ConversionResult, { status: 500 });
   }
 }
-```
-
----
-
-## Step 4: フロントエンドページの実装
-
-### apps/web/src/app/page.tsx
-
-以下のUIを実装する。
