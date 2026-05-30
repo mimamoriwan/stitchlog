@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import type { ThreadBrand, AidaCount, ConversionResult } from '@stitchlog/types';
+import { generatePdf } from '@/lib/generatePdf';
 
 const SIZE_PRESETS: Record<string, { label: string; widthStitches: number }> = {
   small:    { label: 'ミニ 8cm×8cm',   widthStitches: 44  },
@@ -289,9 +290,16 @@ export default function Home() {
               )}
             </div>
 
-            {/* PDF ダウンロード（未実装） */}
-            <Button variant="outline" disabled style={{ width: '100%' }}>
-              PDF をダウンロード（準備中）
+            {/* PDF ダウンロード */}
+            <Button
+              variant="outline"
+              style={{ width: '100%' }}
+              onClick={() => {
+                const date = pattern.metadata.generatedAt.slice(0, 10);
+                generatePdf(pattern, `stitchlog-pattern-${date}.pdf`);
+              }}
+            >
+              PDF をダウンロード
             </Button>
 
           </CardContent>

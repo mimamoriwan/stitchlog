@@ -1,182 +1,53 @@
-threadMatcher.ts が存在しないことを確認しました。
-ゼロから作成して組み込みまで完了させます。
+CLAUDE.mdを読んでから作業を開始してください。
 
-# Step 1: DMCカラーDB + マッチング関数を作成
+# タスク: PDF出力（図案を印刷できるようにする）
 
-packages/conversion-engine/src/threadColors/ ディレクトリを作成し、
-packages/conversion-engine/src/threadColors/dmc.ts を以下の内容で作成:
+## 背景
+「PDFをダウンロード」ボタンが disabled のままになっている。
+変換結果の PatternData を受け取り、A4 PDF として出力する。
 
-import type { ThreadBrand } from '@stitchlog/types';
+## ライブラリのインストール
+pnpm --filter @stitchlog/web add jspdf
 
-export interface ThreadColorEntry {
-  brand: ThreadBrand;
-  code: string;
-  name: string;
-  hex: string;
-  r: number;
-  g: number;
-  b: number;
-}
+※ jspdf v2以降は型定義が同梱されているため @types/jspdf は不要。
+  インストール後に型エラーが出た場合のみ追加すること。
 
-export const DMC_COLORS: ThreadColorEntry[] = [
-  { brand: 'DMC', code: 'blanc',  name: 'White',                  hex: '#FFFFFF', r: 255, g: 255, b: 255 },
-  { brand: 'DMC', code: 'B5200',  name: 'Bright White',           hex: '#F8F8FF', r: 248, g: 248, b: 255 },
-  { brand: 'DMC', code: '3865',   name: 'Winter White',           hex: '#F5F0E8', r: 245, g: 240, b: 232 },
-  { brand: 'DMC', code: '310',    name: 'Black',                  hex: '#000000', r:   0, g:   0, b:   0 },
-  { brand: 'DMC', code: '3799',   name: 'Very Dk Pewter Gray',    hex: '#2B2B2B', r:  43, g:  43, b:  43 },
-  { brand: 'DMC', code: '414',    name: 'Dk Steel Gray',          hex: '#7E7E7E', r: 126, g: 126, b: 126 },
-  { brand: 'DMC', code: '318',    name: 'Lt Steel Gray',          hex: '#ABABAB', r: 171, g: 171, b: 171 },
-  { brand: 'DMC', code: '762',    name: 'Very Lt Pearl Gray',     hex: '#D8D8D8', r: 216, g: 216, b: 216 },
-  { brand: 'DMC', code: '321',    name: 'Red',                    hex: '#C62B38', r: 198, g:  43, b:  56 },
-  { brand: 'DMC', code: '816',    name: 'Garnet',                 hex: '#8B1A2A', r: 139, g:  26, b:  42 },
-  { brand: 'DMC', code: '351',    name: 'Coral',                  hex: '#E8614A', r: 232, g:  97, b:  74 },
-  { brand: 'DMC', code: '353',    name: 'Peach',                  hex: '#F5B8A0', r: 245, g: 184, b: 160 },
-  { brand: 'DMC', code: '3706',   name: 'Med Lt Melon',           hex: '#FF8F8F', r: 255, g: 143, b: 143 },
-  { brand: 'DMC', code: '740',    name: 'Tangerine',              hex: '#FF7300', r: 255, g: 115, b:   0 },
-  { brand: 'DMC', code: '742',    name: 'Lt Tangerine',           hex: '#F9B81F', r: 249, g: 184, b:  31 },
-  { brand: 'DMC', code: '744',    name: 'Pale Yellow',            hex: '#FFF0A0', r: 255, g: 240, b: 160 },
-  { brand: 'DMC', code: '307',    name: 'Lemon',                  hex: '#FFE733', r: 255, g: 231, b:  51 },
-  { brand: 'DMC', code: '472',    name: 'Ultra Lt Avocado',       hex: '#A8C96E', r: 168, g: 201, b: 110 },
-  { brand: 'DMC', code: '704',    name: 'Bright Chartreuse',      hex: '#6ECC2B', r: 110, g: 204, b:  43 },
-  { brand: 'DMC', code: '909',    name: 'Very Dk Emerald Grn',    hex: '#1A6B33', r:  26, g: 107, b:  51 },
-  { brand: 'DMC', code: '502',    name: 'Blue Green',             hex: '#6BA48C', r: 107, g: 164, b: 140 },
-  { brand: 'DMC', code: '336',    name: 'Navy Blue',              hex: '#1B3A6B', r:  27, g:  58, b: 107 },
-  { brand: 'DMC', code: '798',    name: 'Dk Delft Blue',          hex: '#3B6BB5', r:  59, g: 107, b: 181 },
-  { brand: 'DMC', code: '809',    name: 'Delft Blue',             hex: '#7BA3D4', r: 123, g: 163, b: 212 },
-  { brand: 'DMC', code: '3753',   name: 'Ultra Very Lt Ant Blue', hex: '#D4E4F0', r: 212, g: 228, b: 240 },
-  { brand: 'DMC', code: '553',    name: 'Violet',                 hex: '#8B5BA5', r: 139, g:  91, b: 165 },
-  { brand: 'DMC', code: '210',    name: 'Med Lavender',           hex: '#C9A8D4', r: 201, g: 168, b: 212 },
-  { brand: 'DMC', code: '3835',   name: 'Med Grape',              hex: '#9B6B9B', r: 155, g: 107, b: 155 },
-  { brand: 'DMC', code: '223',    name: 'Lt Shell Pink',          hex: '#C98080', r: 201, g: 128, b: 128 },
-  { brand: 'DMC', code: '3350',   name: 'Ultra Dk Dusty Rose',    hex: '#B5476B', r: 181, g:  71, b: 107 },
-  { brand: 'DMC', code: '433',    name: 'Med Brown',              hex: '#8B4513', r: 139, g:  69, b:  19 },
-  { brand: 'DMC', code: '434',    name: 'Lt Brown',               hex: '#A0522D', r: 160, g:  82, b:  45 },
-  { brand: 'DMC', code: '435',    name: 'Very Lt Brown',          hex: '#C4813B', r: 196, g: 129, b:  59 },
-  { brand: 'DMC', code: '437',    name: 'Lt Tan',                 hex: '#D4A96A', r: 212, g: 169, b: 106 },
-  { brand: 'DMC', code: '738',    name: 'Very Lt Tan',            hex: '#E8C99A', r: 232, g: 201, b: 154 },
-  { brand: 'DMC', code: '739',    name: 'Ultra Very Lt Tan',      hex: '#F5E6C8', r: 245, g: 230, b: 200 },
-  { brand: 'DMC', code: '801',    name: 'Dk Coffee Brown',        hex: '#6B3A1F', r: 107, g:  58, b:  31 },
-  { brand: 'DMC', code: '938',    name: 'Ultra Dk Coffee Brn',    hex: '#3D1C0A', r:  61, g:  28, b:  10 },
-  { brand: 'DMC', code: '3371',   name: 'Black Brown',            hex: '#1A0A05', r:  26, g:  10, b:   5 },
-  { brand: 'DMC', code: '420',    name: 'Dk Hazelnut Brown',      hex: '#8B6914', r: 139, g: 105, b:  20 },
-  { brand: 'DMC', code: '422',    name: 'Lt Hazelnut Brown',      hex: '#C4A46B', r: 196, g: 164, b: 107 },
-  { brand: 'DMC', code: '644',    name: 'Med Beige Gray',         hex: '#D4CCBA', r: 212, g: 204, b: 186 },
-  { brand: 'DMC', code: '822',    name: 'Lt Beige Gray',          hex: '#E8E0CC', r: 232, g: 224, b: 204 },
-  { brand: 'DMC', code: '3782',   name: 'Lt Mocha Brown',         hex: '#C4B090', r: 196, g: 176, b: 144 },
-  { brand: 'DMC', code: '3024',   name: 'Very Lt Brown Gray',     hex: '#D8D0C0', r: 216, g: 208, b: 192 },
-  { brand: 'DMC', code: '169',    name: 'Lt Pewter',              hex: '#909090', r: 144, g: 144, b: 144 },
-  { brand: 'DMC', code: '3072',   name: 'Very Lt Beaver Gray',    hex: '#E0E0DC', r: 224, g: 224, b: 220 },
-  { brand: 'DMC', code: '535',    name: 'Very Lt Ash Gray',       hex: '#646464', r: 100, g: 100, b: 100 },
-  { brand: 'DMC', code: '3862',   name: 'Dk Mocha Beige',         hex: '#7A6040', r: 122, g:  96, b:  64 },
-  { brand: 'DMC', code: '3863',   name: 'Med Mocha Beige',        hex: '#9A7A52', r: 154, g: 122, b:  82 },
-];
+## 実装場所
+apps/web/src/lib/generatePdf.ts を新規作成し、page.tsx から呼び出す。
+クライアントサイドで生成する（大きなデータをサーバー経由にしないため）。
 
----
+## PDF仕様
+- 用紙: A4縦（210mm × 297mm）
+- 構成:
+  1. タイトルエリア: "Stitchlog Pattern" + 生成日（YYYY-MM-DD）
+  2. グリッド: crossStitch レイヤーの各マスを色で塗った正方形
+     （バックステッチ・フレンチノットは今回省略）
+  3. カラーパレット: 色丸 + 糸コード + 色名
+  4. メタデータ: ステッチ数・仕上がりサイズ・推定時間
 
-# Step 2: packages/conversion-engine/src/threadMatcher.ts を新規作成
+## グリッドのセルサイズ
+- 基準: 使用可能幅 170mm をグリッド幅で割る
+- 137マス以上の場合は自動縮小（最小 0.8mm/セル）
+- グリッドが1ページに収まらない場合は縮小優先（複数ページ禁止）
 
-import type { ThreadBrand } from '@stitchlog/types';
-import { DMC_COLORS, type ThreadColorEntry } from './threadColors/dmc';
+## page.tsx の変更
+- 「PDFをダウンロード」ボタンの disabled を外す
+- クリック時に generatePdf(patternData) を呼び出す
+- ファイル名: stitchlog-pattern-{YYYY-MM-DD}.pdf
 
-function hexToRgb(hex: string) {
-  const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (!m) return { r: 0, g: 0, b: 0 };
-  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-}
+## 作業前の確認
+PatternData の型（packages/types/src/index.ts）と
+route.ts のレスポンス構造を先に確認し、
+グリッドデータがどの形式で格納されているか把握してから実装する。
 
-function rgbToLab(r: number, g: number, b: number) {
-  const lin = (v: number) => {
-    const s = v / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  const rl = lin(r), gl = lin(g), bl = lin(b);
-  const X = rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375;
-  const Y = rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750;
-  const Z = rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041;
-  const f = (t: number) => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
-  return {
-    L: 116 * f(Y) - 16,
-    a: 500 * (f(X / 0.95047) - f(Y)),
-    b: 200 * (f(Y) - f(Z / 1.08883)),
-  };
-}
+## 制約
+- ライブラリ追加は jspdf のみ
+- エラーが出たら止まって報告する
 
-function deltaE(
-  a: { L: number; a: number; b: number },
-  b: { L: number; a: number; b: number },
-) {
-  return Math.sqrt((a.L - b.L) ** 2 + (a.a - b.a) ** 2 + (a.b - b.b) ** 2);
-}
+## コミット
+git commit -m "feat(web): PDF download for cross-stitch pattern
 
-export function matchToThreadColor(
-  hexValue: string,
-  brand: ThreadBrand,
-): ThreadColorEntry {
-  const { r, g, b } = hexToRgb(hexValue);
-  const targetLab = rgbToLab(r, g, b);
-  const library = DMC_COLORS; // 他ブランドは将来追加
-  let best = library[0];
-  let bestDist = Infinity;
-  for (const color of library) {
-    const d = deltaE(targetLab, rgbToLab(color.r, color.g, color.b));
-    if (d < bestDist) { bestDist = d; best = color; }
-  }
-  return best;
-}
-
----
-
-# Step 3: colorExtractor.ts の return 部分を差し替え
-
-colorExtractor.ts を開き、return の配列マップ部分を以下に差し替える:
-
-ファイル先頭に追加:
-import { matchToThreadColor } from './threadMatcher';
-
-return 部分:
-return palette.map((color, i) => {
-  const pixelCount = counts.get(i) ?? 0;
-  const ratio = pixelCount / totalPixels;
-  const ratios = Array.from(counts.values()).map(v => v / totalPixels);
-  const hex = rgbToHex(color);
-  const matched = matchToThreadColor(hex, brand);
-  return {
-    colorCode: `${matched.brand}-${matched.code}`,
-    colorName: matched.name,
-    hexValue: matched.hex,
-    crossStitchCount: 0,
-    backStitchLength: 0,
-    frenchKnotCount: 0,
-    quarterStitchCount: 0,
-    skeinCount: 1,
-    isBackground: ratio === Math.max(...ratios),
-    isCatchlight: false,
-  };
-});
-
----
-
-# Step 4: index.ts にエクスポートを追加
-
-packages/conversion-engine/src/index.ts に追加:
-export { matchToThreadColor } from './threadMatcher';
-
----
-
-# Step 5: 型チェック → 動作確認 → コミット
-
-pnpm --filter @stitchlog/conversion-engine tsc --noEmit
-pnpm --filter @stitchlog/web tsc --noEmit
-
-localhost:3001 で変換 → DevTools Network → generate レスポンスで
-colorCode が "DMC-433" 形式になっていることを確認してから:
-
-git add -A
-git commit -m "feat(conversion-engine): match extracted colors to real thread codes
-
-- DMC主要50色のカラーデータベース追加 (threadColors/dmc.ts)
-- CIE76 ΔEで最近傍の糸色にマッチング (threadMatcher.ts)
-- colorCodeがDMC-433形式になった"
+- generatePdf.ts 追加（jspdf、クライアントサイド生成）
+- A4縦・グリッド＋カラーパレット＋メタデータ構成
+- 137マス以上はセルサイズ自動縮小"
 git push
-
-エラーが出たら止まって報告してください。
