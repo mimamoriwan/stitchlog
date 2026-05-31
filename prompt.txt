@@ -1,42 +1,141 @@
-CLAUDE.mdを読んでから作業を開始してください。
+CLAUDE.mdと.claude/rules/cross-stitch-conversion.mdを読んでから作業を開始してください。
 
-# タスク: PDFにバックステッチレイヤーを反映
+# タスク: DMC全色・Olympus全色のカラーDBを自動生成する
 
 ## 背景
-generatePdf.ts は現在クロスステッチグリッドのみ描画している。
-layers.backStitch のセグメントをグリッド上に線として重ねて描画する。
+- 現在のDMCカラーDBは50色のみ → 24色指定しても14色に収束してしまう
+- Olympusは未実装
+- 両方のRGBデータがhutarigurashi.comで無料公開されている
 
-## 仕様
+## Step 1: Olympus Excelファイルをダウンロードして構造を確認
 
-### 線の描画ルール
-- 各セグメント（fromX/fromY → toX/toY）を jspdf の line() で描画
-- plyCount === 2（強エッジ）→ 線幅 0.6pt
-- plyCount === 1（弱エッジ）→ 線幅 0.3pt
-- colorCode が "DMC-310"  → setDrawColor(0, 0, 0)
-- colorCode が "DMC-3799" → setDrawColor(43, 43, 43)
-- 上記以外               → setDrawColor(0, 0, 0)（フォールバック）
+```bash
+# pnpm add で xlsx を追加
+pnpm --filter @stitchlog/conversion-engine add xlsx
 
-### 座標計算
-グリッドの描画開始 X/Y オフセットと cellSize を使い、
-各マス目の中央を通るよう計算する（fromX * cellSize + offsetX + cellSize/2 など）。
-既存のグリッド描画変数をそのまま流用すること。変数名は必ず既存コードを確認してから使う。
+# Olympus Excelをダウンロード
+curl -L -o /tmp/RGB-OLYMPUS.xlsm \
+  "https://hutarigurashi.com/download/4441/"
 
-## 実装場所
-apps/web/src/lib/generatePdf.ts の「グリッド描画ブロックの直後」に追加。
-既存のグリッド描画ループとオフセット変数を確認してから実装すること。
+# ファイルが取得できたか確認
+ls -lh /tmp/RGB-OLYMPUS.xlsm
+```
 
-## 制約
-- jspdf の setDrawColor / setLineWidth / line() のみ使用
-- 外部ライブラリ追加なし
-- グリッド描画後にバックステッチを上書きする順序を守る（透過でないため）
-- エラーが出たら止まって報告する
+次に以下のスクリプトでカラム構造を確認して報告する:
 
-## 動作確認
-1. pnpm dev でサーバー起動
-2. 写真をアップロードして変換
-3. PDFダウンロード → Acrobat/プレビューで輪郭線が表示されることを確認
+```typescript
+// scripts/inspectExcel.ts として一時作成
+import * as XLSX from 'xlsx';
+
+const wb = XLSX.readFile('/tmp/RGB-OLYMPUS.xlsm');
+const sheet = wb.Sheets[wb.SheetNames[0]];
+const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
+
+// 先頭10行だけ表示
+console.log('Sheet name:', wb.SheetNames[0]);
+console.log('First 10 rows:');
+rows.slice(0, 10).forEach((row, i) => console.log(i, row));
+```
+
+## Step 2: カラム構造の確認結果を踏まえてパーサーを作成
+
+確認した構造に基づいて
+`scripts/generateThreadDb.ts` を作成する。
+
+出力形式は以下の既存の `ThreadColorEntry` 型に合わせること:
+```typescript
+// packages/conversion-engine/src/threadColors/dmc.ts の既存型
+export interface ThreadColorEntry {
+  brand: ThreadBrand;
+  code: string;
+  name: string;
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+}
+```
+
+- hex は r/g/b から `#${r.toString(16).padStart(2,'0')}...` で生成する
+- name は色コードをそのまま使う（日本語名があれば使う）
+
+## Step 3: 生成スクリプトを実行
+
+```bash
+# Olympus生成
+npx tsx scripts/generateThreadDb.ts olympus \
+  /tmp/RGB-OLYMPUS.xlsm \
+  packages/conversion-engine/src/threadColors/olympus.ts
+
+# 生成された色数を報告（Olympusは約434色を期待）
+```
+
+## Step 4: DMC版も同様に処理
+
+```bash
+# DMC Excelをダウンロード（同サイトのDMC版）
+curl -L -o /tmp/RGB-DMC.xlsm \
+  "https://hutarigurashi.com/download/4440/"
+
+# 構造確認 → 生成
+npx tsx scripts/generateThreadDb.ts dmc \
+  /tmp/RGB-DMC.xlsm \
+  packages/conversion-engine/src/threadColors/dmc.ts
+
+# 生成された色数を報告（DMCは約500色を期待）
+```
+
+## Step 5: threadMatcher.ts にOlympus分岐を追加
+
+既存の `matchToThreadColor` 関数を以下のように更新する
+（変数名は必ず既存コードを確認してから合わせる）:
+
+```typescript
+import { DMC_COLORS } from './threadColors/dmc';
+import { OLYMPUS_COLORS } from './threadColors/olympus';
+
+const BRAND_LIBRARIES: Record<string, ThreadColorEntry[]> = {
+  'DMC': DMC_COLORS,
+  'Olympus': OLYMPUS_COLORS,
+};
+
+export function matchToThreadColor(
+  hexValue: string,
+  brand: ThreadBrand,
+): ThreadColorEntry {
+  const library = BRAND_LIBRARIES[brand] ?? DMC_COLORS;
+  // 以降はΔE計算の既存ロジックをそのまま使う
+}
+```
+
+## Step 6: 動作確認
+
+```bash
+pnpm --filter @stitchlog/conversion-engine tsc --noEmit
+pnpm --filter @stitchlog/web tsc --noEmit
+pnpm dev
+```
+
+localhost:3001 で以下を確認してスクリーンショットを撮る:
+1. 糸ブランド「Olympus」に切り替えて写真を変換
+2. カラーパレットに「Olympus-XXX」形式の番号が出ること
+3. 色数が指定した数（24色なら24色に近い数）になること
 
 ## コミット
+
+```bash
 git add -A
-git commit -m "feat(web): render backstitch layer in PDF output"
+git commit -m "feat(conversion-engine): complete DMC/Olympus color DB (434+500 colors)
+
+- hutarigurashi.com の公開RGBデータを元に自動生成
+- DMC: 50色→500色に拡張
+- Olympus: 新規追加 434色
+- 24色指定時に14色に収束する問題が解消される"
 git push
+```
+
+## 制約
+- any型禁止
+- curlが失敗した場合は失敗を報告してDMCのURLも試す
+- Excelのカラム構造確認（Step 1）の結果を必ず報告してから次に進む
+- エラーが出たら止まって報告する

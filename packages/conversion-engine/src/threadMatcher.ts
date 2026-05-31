@@ -1,5 +1,11 @@
 import type { ThreadBrand } from '@stitchlog/types';
 import { DMC_COLORS, type ThreadColorEntry } from './threadColors/dmc';
+import { OLYMPUS_COLORS } from './threadColors/olympus';
+
+const BRAND_LIBRARIES: Partial<Record<ThreadBrand, ThreadColorEntry[]>> = {
+  DMC: DMC_COLORS,
+  Olympus: OLYMPUS_COLORS,
+};
 
 function hexToRgb(hex: string) {
   const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -37,7 +43,7 @@ export function matchToThreadColor(
 ): ThreadColorEntry {
   const { r, g, b } = hexToRgb(hexValue);
   const targetLab = rgbToLab(r, g, b);
-  const library = DMC_COLORS; // 他ブランドは将来追加
+  const library = BRAND_LIBRARIES[brand] ?? DMC_COLORS;
   let best = library[0];
   let bestDist = Infinity;
   for (const color of library) {

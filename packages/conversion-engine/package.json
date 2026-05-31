@@ -6,6 +6,7 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@stitchlog/types": "workspace:*",
-    "sharp": "*"
+    "sharp": "*",
+    "xlsx": "^0.18.5"
   }
 }
