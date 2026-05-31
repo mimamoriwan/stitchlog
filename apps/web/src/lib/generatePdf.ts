@@ -110,6 +110,18 @@ export function generatePdf(pattern: PatternData, filename: string): void {
     }
   }
 
+  // グリッド格子線（薄いグレー）
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.05);
+  for (let col = 1; col < metadata.widthStitches; col++) {
+    const lx = MARGIN + col * cellSize;
+    doc.line(lx, gridStartY, lx, gridStartY + gridH);
+  }
+  for (let row = 1; row < metadata.heightStitches; row++) {
+    const ly = gridStartY + row * cellSize;
+    doc.line(MARGIN, ly, MARGIN + gridW, ly);
+  }
+
   // グリッド外枠
   doc.setDrawColor(150, 150, 150);
   doc.setLineWidth(0.2);
@@ -138,11 +150,11 @@ export function generatePdf(pattern: PatternData, filename: string): void {
 
   // --- バックステッチ（グリッドの上に重ねて描画）---
   for (const seg of layers.backStitch) {
-    doc.setLineWidth(seg.plyCount === 2 ? 0.6 : 0.3);
+    doc.setLineWidth(seg.plyCount === 2 ? 0.4 : 0.2);
     if (seg.colorCode === 'DMC-310') {
       doc.setDrawColor(0, 0, 0);
     } else if (seg.colorCode === 'DMC-3799') {
-      doc.setDrawColor(43, 43, 43);
+      doc.setDrawColor(60, 60, 60);
     } else {
       doc.setDrawColor(0, 0, 0);
     }
