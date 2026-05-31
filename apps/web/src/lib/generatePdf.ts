@@ -1,12 +1,22 @@
 'use client';
 
 import { jsPDF } from 'jspdf';
-import type { PatternData } from '@stitchlog/types';
+import type { PatternColor, PatternData } from '@stitchlog/types';
+
+const SYMBOLS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 function hexToRgb(hex: string): [number, number, number] {
   const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
   if (!m) return [200, 200, 200];
   return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+function buildSymbolMap(colors: PatternColor[]): Map<string, string> {
+  const map = new Map<string, string>();
+  colors.forEach((color, index) => {
+    map.set(color.colorCode, SYMBOLS[index] ?? '?');
+  });
+  return map;
 }
 
 export function generatePdf(pattern: PatternData, filename: string): void {
@@ -20,14 +30,12 @@ export function generatePdf(pattern: PatternData, filename: string): void {
 
   const { metadata, colorPalette, layers } = pattern;
 
-  // パレット高さを事前計算してグリッドに使える高さを求める
   const PALETTE_COLS = 4;
   const PALETTE_ROW_H = 7;
   const paletteRows = Math.ceil(colorPalette.length / PALETTE_COLS);
   const fixedHeight = 8 + 4 + 6 + 8 + 6 + paletteRows * PALETTE_ROW_H;
   const availableForGrid = USABLE_H - fixedHeight;
 
-  // 幅・高さ両方の制約を満たす最大セルサイズ（最小 0.8mm）
   const cellByWidth = USABLE_W / metadata.widthStitches;
   const cellByHeight = availableForGrid / metadata.heightStitches;
   const cellSize = Math.max(0.8, Math.min(cellByWidth, cellByHeight));
@@ -35,7 +43,10 @@ export function generatePdf(pattern: PatternData, filename: string): void {
   const gridW = cellSize * metadata.widthStitches;
   const gridH = cellSize * metadata.heightStitches;
 
-  // colorCode → hexValue の高速参照マップ
+  // 記号マップ
+  const symbolMap = buildSymbolMap(colorPalette);
+
+  // colorCode → hex マップ
   const colorMap = new Map<string, string>();
   for (const c of colorPalette) colorMap.set(c.colorCode, c.hexValue);
 
@@ -68,12 +79,34 @@ export function generatePdf(pattern: PatternData, filename: string): void {
   // --- グリッド ---
   const gridStartY = curY;
 
+  // cellSize に応じてフォントサイズを自動調整（最小3、最大8）
+  const fontSize = Math.max(3, Math.min(8, cellSize * 2.5));
+
   for (let row = 0; row < metadata.heightStitches; row++) {
     for (let col = 0; col < metadata.widthStitches; col++) {
       const code = grid[row][col];
-      const [r, g, b] = hexToRgb((code ? colorMap.get(code) : undefined) ?? '#CCCCCC');
+      const hex = (code ? colorMap.get(code) : undefined) ?? '#CCCCCC';
+      const [r, g, b] = hexToRgb(hex);
+      const cellX = MARGIN + col * cellSize;
+      const cellY = gridStartY + row * cellSize;
+
+      // 背景色で塗りつぶし
       doc.setFillColor(r, g, b);
-      doc.rect(MARGIN + col * cellSize, gridStartY + row * cellSize, cellSize, cellSize, 'F');
+      doc.rect(cellX, cellY, cellSize, cellSize, 'F');
+
+      // 記号を中央に描画
+      const symbol = (code ? symbolMap.get(code) : undefined) ?? '';
+      if (symbol) {
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        const tv = luminance < 128 ? 255 : 0;
+        doc.setTextColor(tv, tv, tv);
+        doc.setFontSize(fontSize);
+        doc.setFont('helvetica', 'normal');
+        doc.text(symbol, cellX + cellSize / 2, cellY + cellSize / 2, {
+          align: 'center',
+          baseline: 'middle',
+        });
+      }
     }
   }
 
@@ -81,6 +114,27 @@ export function generatePdf(pattern: PatternData, filename: string): void {
   doc.setDrawColor(150, 150, 150);
   doc.setLineWidth(0.2);
   doc.rect(MARGIN, gridStartY, gridW, gridH, 'S');
+
+  // --- 10マスごとの目盛り数字 ---
+  doc.setFontSize(4);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 100, 100);
+  for (let x = 10; x <= metadata.widthStitches; x += 10) {
+    const labelX = MARGIN + x * cellSize;
+    doc.text(String(x), labelX, gridStartY - 1, { align: 'center' });
+  }
+  for (let y = 10; y <= metadata.heightStitches; y += 10) {
+    const labelY = gridStartY + y * cellSize;
+    doc.text(String(y), MARGIN - 2, labelY, { align: 'right' });
+  }
+
+  // --- 中心マーク（赤十字線）---
+  const centerX = MARGIN + (metadata.widthStitches / 2) * cellSize;
+  const centerY = gridStartY + (metadata.heightStitches / 2) * cellSize;
+  doc.setDrawColor(255, 0, 0);
+  doc.setLineWidth(0.2);
+  doc.line(centerX, gridStartY, centerX, gridStartY + gridH);
+  doc.line(MARGIN, centerY, MARGIN + gridW, centerY);
 
   // --- バックステッチ（グリッドの上に重ねて描画）---
   for (const seg of layers.backStitch) {
@@ -104,7 +158,6 @@ export function generatePdf(pattern: PatternData, filename: string): void {
     const cx = MARGIN + knot.x * cellSize + cellSize / 2;
     const cy = gridStartY + knot.y * cellSize + cellSize / 2;
     const radius = cellSize * 0.25;
-
     if (knot.isCatchlight) {
       doc.setFillColor(255, 255, 255);
       doc.setDrawColor(180, 180, 180);
@@ -130,7 +183,7 @@ export function generatePdf(pattern: PatternData, filename: string): void {
 
   curY += 8;
 
-  // --- カラーパレット ---
+  // --- カラーパレット（記号付き）---
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 30, 30);
@@ -138,6 +191,7 @@ export function generatePdf(pattern: PatternData, filename: string): void {
   curY += 5;
 
   const SWATCH = 4;
+  const SYMBOL_W = 6;
   const COL_W = USABLE_W / PALETTE_COLS;
 
   colorPalette.forEach((color, i) => {
@@ -145,23 +199,32 @@ export function generatePdf(pattern: PatternData, filename: string): void {
     const row = Math.floor(i / PALETTE_COLS);
     const cx = MARGIN + col * COL_W;
     const cy = curY + row * PALETTE_ROW_H;
+    const symbol = symbolMap.get(color.colorCode) ?? '?';
 
-    const [r, g, b] = hexToRgb(color.hexValue);
-    doc.setFillColor(r, g, b);
-    doc.rect(cx, cy, SWATCH, SWATCH, 'F');
-    doc.setDrawColor(150, 150, 150);
-    doc.setLineWidth(0.1);
-    doc.rect(cx, cy, SWATCH, SWATCH, 'S');
-
+    // [A] 記号
     doc.setFontSize(7);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 30, 30);
-    doc.text(color.colorCode, cx + SWATCH + 1.5, cy + 2.5);
+    doc.text(`[${symbol}]`, cx, cy + 3);
 
+    // 色スウォッチ
+    const [r, g, b] = hexToRgb(color.hexValue);
+    doc.setFillColor(r, g, b);
+    doc.rect(cx + SYMBOL_W, cy, SWATCH, SWATCH, 'F');
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.1);
+    doc.rect(cx + SYMBOL_W, cy, SWATCH, SWATCH, 'S');
+
+    // 糸コード
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 30, 30);
+    doc.text(color.colorCode, cx + SYMBOL_W + SWATCH + 1.5, cy + 2.5);
+
+    // 色名
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    const name = color.colorName.length > 16 ? color.colorName.slice(0, 16) + '…' : color.colorName;
-    doc.text(name, cx + SWATCH + 1.5, cy + 5.5);
+    const name = color.colorName.length > 14 ? color.colorName.slice(0, 14) + '…' : color.colorName;
+    doc.text(name, cx + SYMBOL_W + SWATCH + 1.5, cy + 5.5);
   });
 
   doc.save(filename);
