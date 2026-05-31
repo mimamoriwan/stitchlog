@@ -280,14 +280,9 @@ export default function Home() {
             {/* 変換ノート */}
             <div style={{ background: 'hsl(var(--muted))', borderRadius: 8, padding: '0.75rem 1rem' }}>
               <p style={{ fontSize: 13, margin: 0, color: 'hsl(var(--muted-foreground))' }}>
-                ✓ 写真から色を抽出・DMC糸番号にマッチング済み
-                （バックステッチ・フレンチノットは次のフェーズで実装）
+                ✓ 写真から色を抽出・{pattern.metadata.threadBrand}糸番号にマッチング済み
+                （フレンチノットは次のフェーズで実装）
               </p>
-              {pattern.metadata.threadBrand !== 'DMC' && (
-                <p className="text-xs text-amber-600 mt-1">
-                  ※ 現在DMCカラーで代替表示中
-                </p>
-              )}
             </div>
 
             {/* PDF ダウンロード */}
