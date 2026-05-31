@@ -99,6 +99,23 @@ export function generatePdf(pattern: PatternData, filename: string): void {
     doc.line(x1, y1, x2, y2);
   }
 
+  // --- フレンチノット（バックステッチの上に重ねて描画）---
+  for (const knot of layers.frenchKnots) {
+    const cx = MARGIN + knot.x * cellSize + cellSize / 2;
+    const cy = gridStartY + knot.y * cellSize + cellSize / 2;
+    const radius = cellSize * 0.25;
+
+    if (knot.isCatchlight) {
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(180, 180, 180);
+    } else {
+      doc.setFillColor(0, 0, 0);
+      doc.setDrawColor(0, 0, 0);
+    }
+    doc.setLineWidth(0.1);
+    doc.circle(cx, cy, radius, 'FD');
+  }
+
   curY += gridH + 6;
 
   // --- メタデータ ---

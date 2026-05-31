@@ -1,67 +1,59 @@
 CLAUDE.mdを読んでから作業を開始してください。
 
-# タスク: PDFにバックステッチレイヤーを反映 ＋ Olympus Warningの修正
+# タスク: PDFにフレンチノットレイヤーを反映
 
-## Part A: Olympus Warning表示の修正
+## 前提確認
+generatePdf.ts を開いて以下を確認してから実装する:
+- バックステッチ描画ブロックの変数名（offsetX・offsetY・cellSize相当）
+- layers.frenchKnot の型（FrenchKnot型のフィールド名: x, y, colorCode, wraps等）
+  → packages/types/src/index.ts を確認する
+変数名・フィールド名は必ず既存コードに合わせる。
 
-page.tsx に「※ 現在DMCカラーで代替表示中」というオレンジの
-Warning表示があれば削除する。
-Olympusの色スウォッチが正しいhex値（olympus.tsから取得した値）で
-表示されていれば問題ない。
-表示色と番号が対応しているか確認して報告する。
-
-## Part B: PDFにバックステッチ線を描画
-
-### 前提確認
-generatePdf.ts を開いて以下の変数名を確認してから実装する:
-- グリッド描画の開始X座標（offsetX相当）
-- グリッド描画の開始Y座標（offsetY相当）
-- 各マスのサイズ（cellSize相当）
-変数名は必ず既存コードのものに合わせる。
-
-### 実装仕様
-layers.backStitch の各セグメント（fromX/fromY → toX/toY）を
-グリッド上に線として重ねて描画する。
+## 実装仕様
+フレンチノットは「小さい塗りつぶし円」としてグリッド上に描画する。
 
 ```typescript
 // 描画ルール
-for (const segment of patternData.layers.backStitch) {
-  const x1 = offsetX + segment.fromX * cellSize + cellSize / 2;
-  const y1 = offsetY + segment.fromY * cellSize + cellSize / 2;
-  const x2 = offsetX + segment.toX   * cellSize + cellSize / 2;
-  const y2 = offsetY + segment.toY   * cellSize + cellSize / 2;
+for (const knot of patternData.layers.frenchKnot) {
+  const cx = offsetX + knot.x * cellSize + cellSize / 2;
+  const cy = offsetY + knot.y * cellSize + cellSize / 2;
+  const radius = cellSize * 0.25; // マス目の25%サイズ
 
-  // plyCount で線幅を切り替え
-  doc.setLineWidth(segment.plyCount === 2 ? 0.6 : 0.3);
-
-  // colorCode で色を切り替え
-  if (segment.colorCode === 'DMC-310') {
-    doc.setDrawColor(0, 0, 0);
-  } else if (segment.colorCode === 'DMC-3799') {
-    doc.setDrawColor(43, 43, 43);
+  // 色設定（isCatchlight: true → 白、それ以外 → 黒）
+  if (knot.isCatchlight) {
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(180, 180, 180); // 白丸の輪郭をうっすら表示
   } else {
-    doc.setDrawColor(0, 0, 0); // フォールバック
+    doc.setFillColor(0, 0, 0);
+    doc.setDrawColor(0, 0, 0);
   }
 
-  doc.line(x1, y1, x2, y2);
+  doc.setLineWidth(0.1);
+  doc.circle(cx, cy, radius, 'FD'); // F=塗りつぶし D=輪郭
 }
 ```
 
-### 挿入位置
-グリッド描画ブロックの直後、フレンチノット描画の前に挿入する。
+## 挿入位置
+バックステッチ描画ブロックの直後に挿入する。
+（描画順：グリッド → バックステッチ → フレンチノット）
 
 ## 動作確認
 1. pnpm dev で起動
-2. Olympus・large・24色で変換
-3. PDFダウンロード → プレビューで確認
-4. 犬の輪郭や毛の境界に細い黒線が重なっていることを確認
-5. スクリーンショット（PDF画面）を撮って報告
+2. Olympus・large・24色で変換（犬の写真を使う）
+3. PDFダウンロード → プレビューで拡大確認
+4. 目のあたりに白い小さい丸（キャッチライト）があることを確認
+5. スクリーンショット（PDF拡大・目の周辺）を撮って報告
 
 ## コミット
 git add -A
-git commit -m "feat(web): render backstitch layer in PDF + fix Olympus color warning"
+git commit -m "feat(web): render french knot layer in PDF output
+
+- isCatchlight=true → 白丸（目のハイライト）
+- それ以外 → 黒丸
+- 描画順: グリッド → バックステッチ → フレンチノット"
 git push
 
 ## 制約
+- jspdf の circle() / setFillColor() / setDrawColor() のみ使用
 - 外部ライブラリ追加なし
 - エラーが出たら止まって報告する
